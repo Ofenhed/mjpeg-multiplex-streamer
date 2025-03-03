@@ -1,0 +1,4 @@
+inotify-simple
+rpi-libcamera
+numpy
+simplejpeg

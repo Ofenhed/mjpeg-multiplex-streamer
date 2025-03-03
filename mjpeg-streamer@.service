@@ -1,0 +1,13 @@
+[Unit]
+Description=HTTP server streaming a single MJPEG stream from the webcam
+Wants=mjpeg-streamer.service
+RefuseManualStart=yes
+
+[Service]
+ExecStart=/opt/mjpeg-multiplex-streamer/.venv/bin/python /opt/mjpeg-multiplex-streamer/server.py --socket=systemd /run/webcam/
+Restart=no
+
+PrivateTmp=yes
+PrivateUsers=yes
+ProtectHome=tmpfs
+DynamicUser=yes
