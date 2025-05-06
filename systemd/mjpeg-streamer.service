@@ -1,14 +1,17 @@
 [Unit]
-Description=Whenever the file /run/cam/current.jpg is read, it is replaced with a more recent image.
+Description=Whenever the file /run/cam/current.jpg is read, it is replaced with a more recent image
 
 [Service]
 ExecStart=/opt/mjpeg-multiplex-streamer/.venv/bin/python /opt/mjpeg-multiplex-streamer/capture.py --max-fps 10 --max-width 1920 /run/webcam/
 
-ProtectSystem=True
+NoNewPrivileges=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+
 DynamicUser=yes
 Group=video
 
 RuntimeDirectory=webcam
 UMask=022
 
-Restart=on-error
+Restart=on-failure

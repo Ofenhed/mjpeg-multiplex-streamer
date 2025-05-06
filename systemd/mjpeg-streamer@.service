@@ -7,7 +7,10 @@ RefuseManualStart=yes
 ExecStart=/opt/mjpeg-multiplex-streamer/.venv/bin/python /opt/mjpeg-multiplex-streamer/server.py --socket=systemd /run/webcam/
 Restart=no
 
+ProtectSystem=strict
 PrivateTmp=yes
 PrivateUsers=yes
 ProtectHome=tmpfs
+NoNewPrivileges=yes
+PrivateNetwork=yes
 DynamicUser=yes
