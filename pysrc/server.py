@@ -178,7 +178,6 @@ def _main(filename, work_dir, boundary, socket):
 
     with socket as client:
         send_all = lambda data: writer.write_bytes(client, data, write=socket_send)
-        send_flush = lambda: writer.write_bytes(client, b'', write=socket_send, flush=True)
         send_all(b"HTTP/1.1 200 OK\r\n")
         send_all(b"Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n")
         send_all(b"X-Accel-Buffering: no\r\n")
@@ -226,7 +225,6 @@ def _main(filename, work_dir, boundary, socket):
                     send_all(f"Content-Disposition: inline; filename=\"snapshot {created}.jpg\"\r\n".encode("utf-8"))
                 send_all(f"Content-Length: {file_length}\r\n\r\n".encode('utf-8'))
                 writer.pipe(current, client, write=socket_send)
-                send_flush()
                 if single:
                     return
 
