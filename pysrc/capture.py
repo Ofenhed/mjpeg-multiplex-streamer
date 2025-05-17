@@ -1,14 +1,16 @@
+from inotify_simple import INotify, flags as IFlags
+from select import select
+
 import argparse
 import libcamera
 import mmap
 import numpy as np
-import os.path
 import os
-from select import select
+import os.path
 import simplejpeg
-import time
+import sys
 import threading
-from inotify_simple import INotify, flags as IFlags
+import time
 
 class YuvBuffer:
     def __init__(self, planes, size):
@@ -36,7 +38,10 @@ class YuvBuffer:
         if self.encoded is not None:
             del self.encoded
 
-def _main(filename, working_filename, max_fps, overwrite_existing_temp_file, work_dir, max_width, max_height, list_resolutions, min_width, min_height, smallest_resolution):
+class FrameTimeout(TimeoutError):
+    pass
+
+def _main(filename, working_filename, max_fps, overwrite_existing_temp_file, work_dir, max_width, max_height, list_resolutions, min_width, min_height, smallest_resolution, frame_timeout_secs, inotify_max_timeout_secs):
     inotify = INotify()
     counter = 0
     assert os.path.isdir(work_dir), "Invalid workdir"
@@ -89,6 +94,8 @@ def _main(filename, working_filename, max_fps, overwrite_existing_temp_file, wor
             jpeg_encoders.append(None)
         frame_timestamp = None
         cam_start = cam.start
+        no_access = 0
+        inotify_timeout_secs = frame_delay*2
 
         try:
             while True:
@@ -102,7 +109,9 @@ def _main(filename, working_filename, max_fps, overwrite_existing_temp_file, wor
                 if request:
                     request = request[-1]
                 else:
-                    select([cam_mgr.event_fd], [], [])
+                    ready, _, _ = select([cam_mgr.event_fd], [], [], frame_timeout_secs)
+                    if cam_mgr.event_fd not in ready:
+                        raise FrameTimeout()
                     request = cam_mgr.get_ready_requests()[-1]
                 next_request = requests[request.cookie ^ 1]
                 next_request.reuse()
@@ -127,13 +136,22 @@ def _main(filename, working_filename, max_fps, overwrite_existing_temp_file, wor
                         mapped.seek(0)
                         mapped.write(encoded)
                         mapped.flush()
+                    no_access = os.stat(output).st_atime_ns
                 finally:
                     os.close(output)
                 current_id = inotify.add_watch(working_path, IFlags.OPEN)
                 os.rename(working_path, output_path)
                 while True:
-                    ready, _, _ = select([inotify, cam_mgr.event_fd] if cam_start is None else [inotify], [], [])
-                    if inotify in ready:
+                    ready, _, _ = select([inotify, cam_mgr.event_fd] if cam_start is None else [inotify], [], [], inotify_timeout_secs)
+                    next_frame = inotify in ready
+                    if not next_frame:
+                        if os.stat(output_path).st_atime_ns != no_access:
+                            print("Timeout: Access updated without inotify event", file=sys.stderr)
+                            inotify_timeout_secs = frame_delay * 2
+                            next_frame = True
+                        else:
+                            inotify_timeout_secs = min(inotify_max_timeout_secs, inotify_timeout_secs * 2)
+                    if next_frame:
                         inotify.rm_watch(current_id)
                         while inotify.read(timeout=0):
                             pass
@@ -142,6 +160,7 @@ def _main(filename, working_filename, max_fps, overwrite_existing_temp_file, wor
                         req = cam_mgr.get_ready_requests()[-1]
                         cam.stop()
                         cam_start = cam.start
+
         finally:
             cam.stop()
     finally:
@@ -154,6 +173,8 @@ if __name__ == "__main__":
     args.add_argument('-f', '--filename', type=str, default='current.jpg')
     args.add_argument('--working-filename', type=str, default='saving.jpg')
     args.add_argument('--max-fps', type=float, default=30.0)
+    args.add_argument('--frame-timeout-secs', type=float, default=10.0)
+    args.add_argument('--inotify-max-timeout-secs', type=float, default=30.0)
     args.add_argument('--max-width', type=int, default=None)
     args.add_argument('--max-height', type=int, default=None)
     args.add_argument('--min-width', type=int, default=None)
