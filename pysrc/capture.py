@@ -95,7 +95,8 @@ def _main(filename, working_filename, max_fps, overwrite_existing_temp_file, wor
         frame_timestamp = None
         cam_start = cam.start
         no_access = 0
-        inotify_timeout_secs = frame_delay*2
+        inotify_min_timeout_secs = inotify_max_timeout_secs if frame_delay is None else (frame_delay * 2)
+        inotify_timeout_secs = inotify_min_timeout_secs
 
         try:
             while True:
@@ -147,7 +148,7 @@ def _main(filename, working_filename, max_fps, overwrite_existing_temp_file, wor
                     if not next_frame:
                         if os.stat(output_path).st_atime_ns != no_access:
                             print("Timeout: Access updated without inotify event", file=sys.stderr)
-                            inotify_timeout_secs = frame_delay * 2
+                            inotify_timeout_secs = inotify_min_timeout_secs
                             next_frame = True
                         else:
                             inotify_timeout_secs = min(inotify_max_timeout_secs, inotify_timeout_secs * 2)
