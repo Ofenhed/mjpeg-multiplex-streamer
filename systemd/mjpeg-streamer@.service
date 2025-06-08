@@ -6,6 +6,7 @@ RefuseManualStart=yes
 [Service]
 ExecStart=/opt/mjpeg-multiplex-streamer/.venv/bin/python /opt/mjpeg-multiplex-streamer/server.py --socket=systemd /run/webcam/
 Restart=no
+CollectMode=inactive-or-failed
 
 ProtectSystem=strict
 PrivateTmp=yes
