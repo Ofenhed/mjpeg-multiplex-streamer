@@ -3,7 +3,9 @@ import mmap
 import os
 import os.path
 import socket as sock
+import subprocess
 import sys
+import time
 
 from datetime import datetime
 from inotify_simple import INotify, flags as IFlags
@@ -114,6 +116,21 @@ def write_all(target, data, write=lambda x: x.write):
         total_bytes_written += bytes_written
     return total_bytes_written
 
+def create_watchdog():
+    half_watchdog_ns = int(os.environ.get("WATCHDOG_USEC")) * 500
+    last_watchdog = time.monotonic_ns()
+    last_status = None
+    def send_watchdog(status = last_status):
+        nonlocal last_watchdog
+        nonlocal last_status
+        now = time.monotonic_ns()
+        if last_watchdog + half_watchdog_ns > now:
+            subprocess.check_call(["systemd-notify", "--status", status, "WATCHDOG=1"])
+            last_watchdog = now
+            last_status = status
+    subprocess.check_call(["systemd-notify", "--ready", "WATCHDOG=1"])
+    return send_watchdog
+
 SD_LISTEN_FDS_START=3
 
 def _main(filename, work_dir, boundary, socket):
@@ -176,6 +193,8 @@ def _main(filename, work_dir, boundary, socket):
                     break
         event_file_moved = inotify.add_watch(work_dir, IFlags.MOVED_TO | IFlags.ONLYDIR)
 
+    frames_served = 0
+    maybe_watchdog = create_watchdog()
     with socket as client:
         send_all = lambda data: writer.write_bytes(client, data, write=socket_send)
         send_all(b"HTTP/1.1 200 OK\r\n")
@@ -196,6 +215,7 @@ def _main(filename, work_dir, boundary, socket):
         except FileNotFoundError:
             wait_for_file = True
         while True:
+            maybe_watchdog(f"Served {frames_served} frames")
             send_all(formatted_boundary)
             while wait_for_file:
                 for event in inotify.read():
@@ -227,6 +247,7 @@ def _main(filename, work_dir, boundary, socket):
                 writer.pipe(current, client, write=socket_send)
                 if single:
                     return
+            frames_served = frames_served + 1
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser(prog="libcamera-lazy-capture")

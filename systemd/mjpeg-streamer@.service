@@ -2,11 +2,15 @@
 Description=HTTP server streaming a single MJPEG stream from the webcam
 Wants=mjpeg-streamer.service
 RefuseManualStart=yes
+CollectMode=inactive-or-failed
 
 [Service]
+Type=notify
+NotifyAccess=all
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/mjpeg-multiplex-streamer/.venv/bin/python /opt/mjpeg-multiplex-streamer/server.py --socket=systemd /run/webcam/
 Restart=no
-CollectMode=inactive-or-failed
+WatchdogSec=10
 
 ProtectSystem=strict
 PrivateTmp=yes
