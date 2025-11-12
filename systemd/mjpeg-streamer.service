@@ -1,6 +1,7 @@
 [Unit]
 Description=Whenever the file /run/cam/current.jpg is read, it is replaced with a more recent image
 StopWhenUnneeded=yes
+RefuseManualStart=yes
 
 [Service]
 ExecStart=/opt/mjpeg-multiplex-streamer/.venv/bin/python /opt/mjpeg-multiplex-streamer/capture.py --max-fps 10 --max-width 1920 /run/webcam/
