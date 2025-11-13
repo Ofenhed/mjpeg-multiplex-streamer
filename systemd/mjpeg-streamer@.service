@@ -11,7 +11,7 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/mjpeg-multiplex-streamer/.venv/bin/python /opt/mjpeg-multiplex-streamer/server.py --socket=systemd /run/webcam/
 Restart=no
 WatchdogSec=10
-ExecStopPost=/bin/sh -c 'if [ $$SERVICE_RESULT = "watchdog" ]; then systemctl stop mjpeg-streamer.service; fi'
+ExecStopPost=+/bin/sh -c 'if [ $$SERVICE_RESULT = "watchdog" ]; then systemctl stop mjpeg-streamer.service; fi'
 
 ProtectSystem=strict
 PrivateTmp=yes

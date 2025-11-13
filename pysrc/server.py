@@ -26,6 +26,12 @@ class PipeWriter:
         self.buf = memoryview(bytearray(size))
         self.buf_start = 0
         self.buf_end = 0
+        self.set_write_blocked_handlers(lambda x: (), lambda x: ())
+        self.is_write_blocked = True
+
+    def set_write_blocked_handlers(self, on_block, on_resumed):
+        self.on_write_blocked = on_block
+        self.on_write_resumed = on_resumed
 
     def capacity(self):
         buf_len = len(self.buf)
@@ -77,6 +83,15 @@ class PipeWriter:
         else:
             end = buf_len
         write_len = write(target)(self.buf[start:end])
+        if write_len is None:
+            if not self.is_write_blocked:
+                self.is_write_blocked = True
+                self.on_write_blocked()
+            return 0
+        if self.is_write_blocked:
+            self.is_write_blocked = False
+            self.on_write_resumed()
+
         self.buf_start = (self.buf_start + write_len) % buf_len
         return write_len
 
@@ -98,12 +113,15 @@ class PipeWriter:
             do_write = (has_data and flush) or ((not has_free) and (not ready))
             if not (do_read or do_write):
                 return
-            (readable, writable, _) = select([source] if do_read else [], [target] if do_write else [], [])
+            (readable, writable, _) = select([source] if do_read else [], [target] if do_write else [], [], 0 if self.is_write_blocked else 0.1)
             if source in readable:
                 if self.read_buf(source, readinto=readinto) == 0:
                     ready = True
             if target in writable:
                 self.write_buf(target, write=write)
+            if do_write and not self.is_write_blocked and readable == writable == []:
+                self.is_write_blocked = True
+                self.on_write_blocked()
 
     def write_bytes(self, target, source, flush=False, write=None):
         is_memoryview = isinstance(source, memoryview)
@@ -117,17 +135,24 @@ def write_all(target, data, write=lambda x: x.write):
     return total_bytes_written
 
 def create_watchdog():
-    half_watchdog_ns = int(os.environ.get("WATCHDOG_USEC")) * 500
+    watchdog_us = int(os.environ.get("WATCHDOG_USEC"))
+    half_watchdog_ns = watchdog_us * 500
     last_watchdog = time.monotonic_ns()
     last_status = None
     def send_watchdog(status = last_status):
         nonlocal last_watchdog
         nonlocal last_status
         now = time.monotonic_ns()
-        if last_watchdog + half_watchdog_ns > now:
+        if last_watchdog + half_watchdog_ns < now:
             subprocess.check_call(["systemd-notify", "--status", status, "WATCHDOG=1"])
             last_watchdog = now
             last_status = status
+    def enable_watchdog():
+        subprocess.check_call(["systemd-notify", "WATCHDOG_USEC=" + str(watchdog_us)])
+    def disable_watchdog():
+        subprocess.check_call(["systemd-notify", "WATCHDOG_USEC=0"])
+    send_watchdog.enable = enable_watchdog
+    send_watchdog.disable = disable_watchdog
     subprocess.check_call(["systemd-notify", "--ready", "WATCHDOG=1"])
     return send_watchdog
 
@@ -196,6 +221,13 @@ def _main(filename, work_dir, boundary, socket):
     frames_served = 0
     maybe_watchdog = create_watchdog()
     with socket as client:
+        def on_block():
+            client.setblocking(True)
+            maybe_watchdog.disable()
+        def on_resume():
+            client.setblocking(False)
+            maybe_watchdog.enable()
+        writer.set_write_blocked_handlers(on_block, on_resume)
         send_all = lambda data: writer.write_bytes(client, data, write=socket_send)
         send_all(b"HTTP/1.1 200 OK\r\n")
         send_all(b"Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n")
